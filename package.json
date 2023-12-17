@@ -1,0 +1,30 @@
+{
+  "name": "google-calendar-isi",
+  "version": "1.0.0",
+  "description": "nice google calendar manager",
+  "main": "./src/index.ts",
+  "author": "",
+  "license": "ISC",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node dist/App.js",
+    "dev": "nodemon src/index.ts",
+    "build": "tsc -p ."
+  },
+  "dependencies": {
+    "axios": "^1.6.2",
+    "dayjs": "^1.11.10",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "googleapis": "^129.0.0",
+    "nedb": "^1.8.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/nedb": "^1.8.16",
+    "@types/node": "^20.10.1",
+    "body-parser": "^1.20.2",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.3.2"
+  }
+}
