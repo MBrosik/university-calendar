@@ -1,19 +1,20 @@
 import dotenv from 'dotenv';
 import bodyParser from "body-parser";
-import express, { Request } from "express";
-import { google } from 'googleapis';
-import axios from "axios";
-import dayjs from "dayjs";
+import express from "express";
 import MyNedb from './DB';
 import MyOauthGoogle from './MyOauthGoogle';
-import MyGoogleCalendar from './calendar/MyGoogleCalendar';
 import GoogleCalendarManager from './calendar/GoogleCalendarManager';
+import { reportMissingEnvVars } from "./enviroment/reportMissingEnvVars";
+import useSleep from './utils/useSleep';
 
 
 // ---------
 // config
 // ---------
-dotenv.config({});
+dotenv.config();
+dotenv.config({ path: `.env.local`, override: true });
+reportMissingEnvVars();
+
 const app = express();
 const port = process.env.PORT || 8000;
 
@@ -21,33 +22,55 @@ app.use(express.json());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-const db = new MyNedb();
 const myGoogleAuth = new MyOauthGoogle();
-let googleCalendarManager: GoogleCalendarManager | null= null;
+let googleCalendarManager: GoogleCalendarManager | null = null;
 
-(async()=>{
-   const token = await db.getAuthenticationCode();
-   if(token != null){
+
+async function checkForToken() {
+   const token = await MyNedb.i.getAuthenticationCode();
+   if (token != null) {
       myGoogleAuth.setCredentials(token)
-      googleCalendarManager = new GoogleCalendarManager(myGoogleAuth);      
+      let tempGoogleCalendarManager = new GoogleCalendarManager(myGoogleAuth);
+      await tempGoogleCalendarManager.init();
+      googleCalendarManager = tempGoogleCalendarManager;
+
+      // googleCalendarManager.removeAllWatches();  
    }
-   else{
+   else {
       console.log("Token is null");
-      
+   }
+}
+
+checkForToken();
+
+async function checkForMyGoogleCalendar(){
+   const token = await MyNedb.i.getAuthenticationCode();
+   if(token == null) return false;
+
+   while(googleCalendarManager == null){
+      await useSleep(500);
    }
 
-})()
+   return true;
+}
 
 
+
+setInterval(async ()=>{
+   if(!await checkForMyGoogleCalendar()) return;
+   if(googleCalendarManager == null) return;
+
+   await googleCalendarManager.refreshWatches();
+}, 2 * 24 * 60 * 60 * 1000)
 
 // --------------
 // endpoints
 // --------------
 
 app.get("/google", async (req, res) => {
-   const auth = await db.getAuthenticationCode();
+   const auth = await MyNedb.i.getAuthenticationCode();
 
-   if(auth != null){      
+   if (auth != null) {
       res.status(403)
       res.send("Google id exists");
       return
@@ -60,42 +83,85 @@ app.get("/google", async (req, res) => {
 app.get("/google/redirect", async (req, res) => {
    const code = req.query.code;
 
-   if (code == undefined) return;
+   if (code == undefined) {
+      res.send({
+         msg: "No redirect code"
+      });
+      return
+   };
 
-   db.setAuthenticationCode(await myGoogleAuth.setCredentialsWithCode(<string>code));
-   
+   MyNedb.i.setAuthenticationCode(await myGoogleAuth.setCredentialsWithCode(<string>code));
+   googleCalendarManager = new GoogleCalendarManager(myGoogleAuth);
+   await googleCalendarManager.init();
+
    res.send({
       msg: "Nice bro. You have been logged in"
    });
 })
 
-// APP.get("/schedule_event", async (req, res) => {
-//    const auth = await DB.getAuthenticationCode();
-
-//    if(auth == null){      
-//       res.status(403)
-//       res.send("Google id not exists");
-//       return
+// app.get("/refresh_watchers", async(req, res)=>{ 
+//    if(!await checkForMyGoogleCalendar()) {
+//       res.status(403);
+//       return;
 //    }
-
-//    const result = await calendar.events.insert({
-//       calendarId: "primary",
-//       auth: oauth2Client,
-//       requestBody: {
-//          summary: "This event is test",
-//          description: "Some event that is very important",
-//          start: {
-//             dateTime: dayjs(new Date()).add(1, "day").toISOString(),
-//             timeZone: "Etc/GMT+1"
-//          },
-//          end: {
-//             dateTime: dayjs(new Date()).add(3, "day").toISOString(),
-//             timeZone: "Etc/GMT+1"
-//          }
-//       }
-//    })
-
-//    res.send({ msg: "Noiceeeeeee" })
+//    await googleCalendarManager!.refreshWatches();
+//    console.log(req.query);
+   
+//    res.send("ok");
 // })
+
+app.post("/watch/:calendarID", async (req, res) => {
+   const { calendarID } = req.params;
+   const resourceId = req.headers['x-goog-resource-id'];
+   const channelToken = req.headers['x-goog-channel-token'];
+   const channelId = req.headers['x-goog-channel-id'];
+   const resourceState = req.headers['x-goog-resource-state'];   
+
+   if (resourceState == "sync") {
+      res.send("ok");
+      return;
+   };
+
+   console.log(req.query);
+   console.log(calendarID);
+   console.log(resourceId);
+   console.log(channelToken);
+   console.log(channelId);
+   console.log(resourceState);
+
+
+   if(!await checkForMyGoogleCalendar()) {
+      res.send("ok");
+      return;
+   }
+   if(googleCalendarManager == null) {
+      res.send("ok");
+      return
+   }
+
+   // if (googleCalendarManager == null) {
+   //    await checkForToken();
+   //    if (googleCalendarManager == null) return;
+   // }  
+
+   // await googleCalendarManager.googleCalendar.deleteWatch(calendarID, <string>resourceId)
+   // return;
+
+   if (!(calendarID in googleCalendarManager.calendarRelations)) {
+      await googleCalendarManager.googleCalendar.deleteWatch(calendarID, <string>resourceId)
+      res.send("ok")
+      return;
+   }
+
+
+   const lastEvents = await googleCalendarManager.googleCalendar.getLastEvents(calendarID)
+   if (lastEvents == null) {
+      res.send("ok");
+      return;
+   };
+   console.log(lastEvents)
+   await googleCalendarManager.manageEvents(calendarID, lastEvents);
+   res.send("ok");
+})
 
 app.listen(port, () => console.info(`start serwera na porcie ${port}`))

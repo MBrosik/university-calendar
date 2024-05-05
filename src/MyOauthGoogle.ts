@@ -1,4 +1,4 @@
-import { calendar_v3, google } from 'googleapis';
+import { google } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { Credentials } from "google-auth-library/build/src/auth/credentials";
 
@@ -6,7 +6,11 @@ export default class MyOauthGoogle {
    oauth2Client: OAuth2Client;
 
    private scopes = [
-      'https://www.googleapis.com/auth/calendar'
+      'https://www.googleapis.com/auth/calendar',
+      'https://www.googleapis.com/auth/calendar.events',
+      'https://www.googleapis.com/auth/calendar.events.readonly',
+      'https://www.googleapis.com/auth/calendar.readonly',
+
    ];
 
    constructor() {
